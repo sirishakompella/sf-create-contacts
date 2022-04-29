@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:validation="http://www.mulesoft.org/schema/mule/validation" xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+	<file:config name="File_Config" doc:name="File Config" doc:id="cabe6d37-a288-451a-b606-9aa79ebbcf72" >
+		<file:connection workingDir="C:\Users\skomp\OneDrive\Documents" />
+	</file:config>
+	<salesforce:sfdc-config name="Salesforce_Config" doc:name="Salesforce Config" doc:id="a7067cec-390e-40b6-8a7a-b3ee79685277" >
+		<salesforce:basic-connection username="skompella@open-logix.com" password="Karolina#1" securityToken="hjoSC3FT5W1KsCXnDihrABNJ" />
+	</salesforce:sfdc-config>
+	<flow name="sf-create-contactsFlow" doc:id="74d7073e-018b-4a0e-b1ec-d8c59e451fbb" >
+		<scheduler doc:name="Scheduler" doc:id="20c50d2e-305d-4e32-8b83-5bf108e6bc82" >
+			<scheduling-strategy >
+				<fixed-frequency timeUnit="MINUTES"/>
+			</scheduling-strategy>
+		</scheduler>
+		<file:read doc:id="fbf0797b-668f-4734-8a24-02888c48a88c" path="MOCK_DATA1R.csv" config-ref="File_Config" doc:name="contact payload"/>
+		<flow-ref doc:name="sf-create-contactsFlow1" doc:id="3d7283e8-e202-4321-acf0-87073039381b" name="sf-create-contactsFlow1" />
+		<error-handler>
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="f51c8e1c-76d9-4d37-bf84-5f5043aec419" type="FILE:ILLEGAL_PATH">
+				<logger level="INFO" doc:name="error" doc:id="a623142e-3576-440a-9791-855ff7b5fff1" message='#[%dw 2.0&#10;output application/json&#10;---&#10;{&#10;	Error: "ILLEGAL FILE PATH"&#10;}]'/>
+			</on-error-continue>
+		</error-handler>
+	</flow>
+	<flow name="sf-create-contactsFlow1" doc:id="811c456d-02e0-4fc0-ab91-d5eec053bb6c" >
+		<ee:transform doc:name="contact csv payload" doc:id="bb58cc54-bcd6-4223-a54a-4135a5db60c4" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/csv quoteValues=true, lineSeparator="\n"
+---
+payload map {
+	LastName: $.last_name,
+	FirstName: $.first_name,
+	HomePhone: $.phone,
+	Email: $.email
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<salesforce:create-job-bulk-api-v2 objectType="Contact" doc:id="99ad2503-6222-4a8e-86b2-f00c75605540" config-ref="Salesforce_Config" operation="insert" lineEnding="CRLF" doc:name="contact object">
+			<salesforce:s-objects ><![CDATA[#[%dw 2.0
+output application/csv
+---
+payload]]]></salesforce:s-objects>
+		</salesforce:create-job-bulk-api-v2>
+		<choice doc:name="Choice" doc:id="2e508dd8-1dd7-4055-82d5-979fb648d4a2" >
+			<when expression='#[payload.state == "Failed"]'>
+				<salesforce:get-job-state-bulk-api-v2 doc:name="salesforce bulk error responses" doc:id="49e83c73-f431-4dcd-b4fe-a308108a196d" config-ref="Salesforce_Config" id="#[payload]" />
+				<logger level="INFO" doc:name="bulk error responses" doc:id="9519ab87-a0ba-4799-8e54-59a86f83872c" message="#[payload]" />
+				<file:write doc:name="contactErrors.txt" doc:id="7a796b5b-0641-4364-b4ca-f1b49d6fd6d3" config-ref="File_Config" path="contactErrors.txt"/>
+			</when>
+			<otherwise>
+				<logger level="INFO" doc:name="salesforce response" doc:id="c5fc7a66-f373-453d-8b31-8e54d885fe27" message="#[%dw 2.0&#10;output application/json&#10;---&#10;payload]"/>
+			</otherwise>
+		</choice>
+	</flow>
+</mule>
